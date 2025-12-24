@@ -1,0 +1,22 @@
+#!/bin/bash
+set -e
+
+echo "Running Master Initialization..."
+
+mysql -u root -p"$MYSQL_ROOT_PASSWORD" <<-EOSQL
+    -- Create Replication User
+    CREATE USER IF NOT EXISTS '${MYSQL_REPLICATION_USER}'@'%' IDENTIFIED BY '${MYSQL_REPLICATION_PASSWORD}';
+    GRANT REPLICATION SLAVE ON *.* TO '${MYSQL_REPLICATION_USER}'@'%';
+
+    -- Create ProxySQL Monitor User
+    CREATE USER IF NOT EXISTS '${PROXYSQL_MONITOR_USER}'@'%' IDENTIFIED BY '${PROXYSQL_MONITOR_PASSWORD}';
+    GRANT USAGE, REPLICATION CLIENT ON *.* TO '${PROXYSQL_MONITOR_USER}'@'%';
+
+    -- Create Application User
+    CREATE USER IF NOT EXISTS '${APP_USER}'@'%' IDENTIFIED BY '${APP_PASSWORD}';
+    GRANT ALL PRIVILEGES ON *.* TO '${APP_USER}'@'%' WITH GRANT OPTION;
+
+    FLUSH PRIVILEGES;
+EOSQL
+
+echo "Master Initialization Complete."
