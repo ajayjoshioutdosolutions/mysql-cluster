@@ -1,0 +1,55 @@
+datadir="/var/lib/proxysql"
+
+admin_variables=
+{
+    admin_credentials="admin:admin;radmin:radmin"
+    mysql_ifaces="0.0.0.0:6032"
+}
+
+mysql_variables=
+{
+    threads=4
+    max_connections=2048
+    default_query_delay=0
+    default_query_timeout=36000000
+    have_compress=true
+    poll_timeout=2000
+    interfaces="0.0.0.0:6033"
+    default_schema="information_schema"
+    stacksize=1048576
+    server_version="8.0.0"
+    connect_timeout_server=10000
+    monitor_username="${PROXYSQL_MONITOR_USER}"
+    monitor_password="${PROXYSQL_MONITOR_PASSWORD}"
+    monitor_history=600000
+    monitor_connect_interval=200000
+    monitor_ping_interval=200000
+    ping_interval_server_msec=10000
+    ping_timeout_server=200
+}
+
+mysql_servers =
+(
+    { address="mysql-master", port=3306, hostgroup=10, max_connections=800 },
+    { address="mysql-slave1", port=3306, hostgroup=20, max_connections=800 },
+    { address="mysql-slave2", port=3306, hostgroup=20, max_connections=800 },
+    { address="mysql-slave3", port=3306, hostgroup=20, max_connections=800 }
+)
+
+mysql_users =
+(
+    { username = "${APP_USER}", password = "${APP_PASSWORD}", default_hostgroup = 10, active = 1 },
+    { username = "root", password = "${MYSQL_ROOT_PASSWORD}", default_hostgroup = 10, active = 1 }
+)
+
+mysql_query_rules =
+(
+    # Writes (INSERT, UPDATE, DELETE, etc) -> Master (HG 10)
+    { rule_id=100, active=1, match_pattern="^SELECT .* FOR UPDATE$", destination_hostgroup=10, apply=1 },
+    # All other SELECTs -> Slaves (HG 20)
+    { rule_id=200, active=1, match_pattern="^SELECT", destination_hostgroup=20, apply=1 },
+    # DDL and Session management -> Master (HG 10)
+    { rule_id=300, active=1, match_pattern="(?i)^(INSERT|UPDATE|DELETE|REPLACE|CREATE|ALTER|DROP|TRUNCATE|BEGIN|START TRANSACTION|COMMIT|ROLLBACK|SET|SHOW)", destination_hostgroup=10, apply=1 },
+    # Catch-all -> Master (HG 10)
+    { rule_id=400, active=1, match_pattern=".*", destination_hostgroup=10, apply=1 }
+)

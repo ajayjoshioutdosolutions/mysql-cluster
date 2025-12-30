@@ -1,0 +1,202 @@
+services:
+
+  mysql-master:
+    image: mysql:8.0
+    container_name: mysql-master
+    restart: unless-stopped
+    deploy:
+      resources:
+        limits:
+          memory: 8000M
+          cpus: '10.0'
+    command: --default-authentication-plugin=mysql_native_password
+    environment:
+      MYSQL_ROOT_PASSWORD: ${MYSQL_ROOT_PASSWORD}
+      MYSQL_REPLICATION_USER: ${MYSQL_REPLICATION_USER}
+      MYSQL_REPLICATION_PASSWORD: ${MYSQL_REPLICATION_PASSWORD}
+      PROXYSQL_MONITOR_USER: ${PROXYSQL_MONITOR_USER}
+      PROXYSQL_MONITOR_PASSWORD: ${PROXYSQL_MONITOR_PASSWORD}
+      APP_USER: ${APP_USER}
+      APP_PASSWORD: ${APP_PASSWORD}
+    volumes:
+      - ./docker/master/my.cnf:/etc/mysql/my.cnf
+      - mysql-master-data:/var/lib/mysql
+      - ./docker/master/init.sh:/docker-entrypoint-initdb.d/01-init.sh
+    networks:
+      - proxy
+    healthcheck:
+      test: [ "CMD", "mysqladmin", "ping", "-h", "localhost", "-u", "root", "-p${MYSQL_ROOT_PASSWORD}" ]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+
+  mysql-slave1:
+    image: mysql:8.0
+    container_name: mysql-slave1
+    restart: unless-stopped
+    deploy:
+      resources:
+        limits:
+          memory: 4096M
+          cpus: '4.0'
+    command: --default-authentication-plugin=mysql_native_password
+    environment:
+      MYSQL_ROOT_PASSWORD: ${MYSQL_ROOT_PASSWORD}
+      MYSQL_REPLICATION_USER: ${MYSQL_REPLICATION_USER}
+      MYSQL_REPLICATION_PASSWORD: ${MYSQL_REPLICATION_PASSWORD}
+    volumes:
+      - ./docker/slave1/my.cnf:/etc/mysql/my.cnf
+      - mysql-slave1-data:/var/lib/mysql
+      - ./docker/slave-setup.sh:/docker-entrypoint-initdb.d/01-setup.sh
+    depends_on:
+      mysql-master:
+        condition: service_healthy
+    networks:
+      - proxy
+    healthcheck:
+      test: [ "CMD", "mysqladmin", "ping", "-h", "localhost", "-u", "root", "-p${MYSQL_ROOT_PASSWORD}" ]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+
+  mysql-slave2:
+    image: mysql:8.0
+    container_name: mysql-slave2
+    restart: unless-stopped
+    deploy:
+      resources:
+        limits:
+          memory: 4096M
+          cpus: '4.0'
+    command: --default-authentication-plugin=mysql_native_password
+    environment:
+      MYSQL_ROOT_PASSWORD: ${MYSQL_ROOT_PASSWORD}
+      MYSQL_REPLICATION_USER: ${MYSQL_REPLICATION_USER}
+      MYSQL_REPLICATION_PASSWORD: ${MYSQL_REPLICATION_PASSWORD}
+    volumes:
+      - ./docker/slave2/my.cnf:/etc/mysql/my.cnf
+      - mysql-slave2-data:/var/lib/mysql
+      - ./docker/slave-setup.sh:/docker-entrypoint-initdb.d/01-setup.sh
+    depends_on:
+      mysql-master:
+        condition: service_healthy
+    networks:
+      - proxy
+    healthcheck:
+      test: [ "CMD", "mysqladmin", "ping", "-h", "localhost", "-u", "root", "-p${MYSQL_ROOT_PASSWORD}" ]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+
+  mysql-slave3:
+    image: mysql:8.0
+    container_name: mysql-slave3
+    restart: unless-stopped
+    deploy:
+      resources:
+        limits:
+          memory: 4096M
+          cpus: '4.0'
+    command: --default-authentication-plugin=mysql_native_password
+    environment:
+      MYSQL_ROOT_PASSWORD: ${MYSQL_ROOT_PASSWORD}
+      MYSQL_REPLICATION_USER: ${MYSQL_REPLICATION_USER}
+      MYSQL_REPLICATION_PASSWORD: ${MYSQL_REPLICATION_PASSWORD}
+    volumes:
+      - ./docker/slave3/my.cnf:/etc/mysql/my.cnf
+      - mysql-slave3-data:/var/lib/mysql
+      - ./docker/slave-setup.sh:/docker-entrypoint-initdb.d/01-setup.sh
+    depends_on:
+      mysql-master:
+        condition: service_healthy
+    networks:
+      - proxy
+    healthcheck:
+      test: [ "CMD", "mysqladmin", "ping", "-h", "localhost", "-u", "root", "-p${MYSQL_ROOT_PASSWORD}" ]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+
+  proxysql:
+    image: proxysql/proxysql:2.5.5
+    container_name: proxysql
+    restart: unless-stopped
+    deploy:
+      resources:
+        limits:
+          memory: 1024M
+          cpus: '2.0'
+    environment:
+      PROXYSQL_MONITOR_USER: ${PROXYSQL_MONITOR_USER}
+      PROXYSQL_MONITOR_PASSWORD: ${PROXYSQL_MONITOR_PASSWORD}
+      APP_USER: ${APP_USER}
+      APP_PASSWORD: ${APP_PASSWORD}
+      MYSQL_ROOT_PASSWORD: ${MYSQL_ROOT_PASSWORD}
+    ports:
+      - "6033:6033"
+      - "6032:6032"
+    volumes:
+      - ./docker/proxysql/proxysql.cnf.template:/etc/proxysql.cnf.template
+      - ./docker/proxysql/entrypoint.sh:/entrypoint.sh
+      - proxysql-data:/var/lib/proxysql
+    entrypoint: /entrypoint.sh
+    depends_on:
+      mysql-master:
+        condition: service_healthy
+      mysql-slave1:
+        condition: service_healthy
+      mysql-slave2:
+        condition: service_healthy
+      mysql-slave3:
+        condition: service_healthy
+    networks:
+      - proxy
+    healthcheck:
+      test: [ "CMD", "mysql", "-h", "127.0.0.1", "-P", "6032", "-u", "admin", "-padmin", "-e", "SELECT 1" ]
+      interval: 10s
+      timeout: 5s
+      retries: 3
+
+  mysql-backup:
+    image: mysql:8.0
+    container_name: mysql-backup
+    restart: unless-stopped
+    environment:
+      MYSQL_ROOT_PASSWORD: ${MYSQL_ROOT_PASSWORD}
+    volumes:
+      - ./backups:/backups
+      - ./docker/backup/backup.sh:/usr/local/bin/backup.sh
+    entrypoint: [ "/usr/local/bin/backup.sh" ]
+    depends_on:
+      mysql-master:
+        condition: service_healthy
+    networks:
+      - proxy
+
+  phpmyadmin:
+    image: phpmyadmin/phpmyadmin
+    container_name: phpmyadmin
+    restart: unless-stopped
+    environment:
+      PMA_HOSTS: mysql-master,mysql-slave1,mysql-slave2,mysql-slave3
+      PMA_VERBOSES: Master,Slave-1,Slave-2,Slave-3
+      PMA_PORT: 3306
+      MYSQL_ROOT_PASSWORD: ${PMA_PASSWORD}
+    networks:
+      - proxy
+    depends_on:
+      mysql-master:
+        condition: service_healthy
+    ports:
+      - "8081:80"
+
+networks:
+  proxy:
+    driver: bridge
+
+volumes:
+  mysql-master-data:
+  mysql-slave1-data:
+  mysql-slave2-data:
+  mysql-slave3-data:
+  proxysql-data:
